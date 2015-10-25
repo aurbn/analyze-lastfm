@@ -26,14 +26,24 @@ LASTFM_TRACKS = 'lastfm_tracks.json'
 ECHONEST_DIR = 'echonest'
 ECHONEST_API = 'http://developer.echonest.com/api/v4/'
 ECHONEST_KEY = 'L5WW5JLI1ZVGAPJQW'
+ECHONEST_SERPS = 'echonest_serps.json'
 
 
-Artist = namedtuple('Artist', ['name', 'image'])
-Album = namedtuple('Album', ['name', 'image'])
+LastfmArtist = namedtuple('LastfmArtist', ['name', 'image'])
+LastfmAlbum = namedtuple('LastfmAlbum', ['name', 'image'])
 LastfmTrack = namedtuple(
     'LastfmTrack',
     ['artist', 'album', 'name', 'timestamp', 'loved']
 )
+
+EchonestQuery = namedtuple('EchonestQuery', ['artist', 'track'])
+EchonestAudio = namedtuple(
+    'EchonestAudio',
+    ['energy', 'liveness', 'tempo', 'speechiness',
+     'acousticness', 'danceability',
+     'instrumentalness', 'duration', 'loudness']
+)
+EchonestTrack = namedtuple('EchonestTrack', ['artist', 'name', 'audio'])
 
 
 def call_lastfm(**parameters):
@@ -105,8 +115,8 @@ def parse_lastfm_tracks_page(data):
             timestamp = timestamp.attrib['uts']
             timestamp = parse_timestamp(int(timestamp))
         yield LastfmTrack(
-            Artist(artist_name, artist_image),
-            Album(album_name, album_image),
+            LastfmArtist(artist_name, artist_image),
+            LastfmAlbum(album_name, album_image),
             name, timestamp, loved
         )
 
@@ -147,8 +157,8 @@ def load_lastfm_tracks(path=LASTFM_TRACKS):
         data = cjson.decode(file.read())
         return [
             LastfmTrack(
-                Artist(artist_name, artist_image),
-                Album(album_name, album_image),
+                LastfmArtist(artist_name, artist_image),
+                LastfmAlbum(album_name, album_image),
                 name, parse_timestamp(timestamp), loved
             )
             for ((artist_name, artist_image),
@@ -168,7 +178,8 @@ def call_echonest(method, **parameters):
     return response.json()
 
 
-def download_echonest_track_serp(artist, track):
+def download_echonest_track_serp(query):
+    artist, track = query
     print >>sys.stderr, u'Search at Echonest "{artist} - {track}"'.format(
         artist=artist,
         track=track
@@ -187,41 +198,102 @@ def download_echonest_track_serp(artist, track):
     )
 
 
-def get_artist_track_hash(artist, track):
-    hash = artist + track
+def get_artist_track_hash(query):
+    hash = query.artist + query.track
     hash = md5(hash.encode('utf8')).hexdigest()
     return hash
 
 
-def get_echonest_track_serp_filename(artist, track):
+def get_echonest_track_serp_filename(query):
     return '{hash}.json'.format(
-        hash=get_artist_track_hash(artist, track)
+        hash=get_artist_track_hash(query)
     )
 
 
-def get_echonest_track_serp_path(artist, track):
-    filename = get_echonest_track_serp_filename(artist, track)
+def get_echonest_track_serp_path(query):
+    filename = get_echonest_track_serp_filename(query)
     return os.path.join(ECHONEST_DIR, filename)
 
 
-def load_echonest_track_serp(artist, track):
-    path = get_echonest_track_serp_path(artist, track)
+def load_echonest_track_serp(query):
+    path = get_echonest_track_serp_path(query)
     with open(path) as file:
         return json.load(file)
 
 
-def dump_echonest_track_serp(serp, artist, track):
-    path = get_echonest_track_serp_path(artist, track)
+def dump_echonest_track_serp(serp, query):
+    path = get_echonest_track_serp_path(query)
     with open(path, 'w') as file:
         json.dump(serp, file)
 
 
-if __name__ == '__main__':
-    tracks = load_lastfm_tracks()
-    artist_tracks = Counter((_.artist.name, _.name) for _ in tracks)
-    for (artist, track), _ in artist_tracks.most_common():
-        path = get_echonest_track_serp_path(artist, track)
-        if not os.path.exists(path):
-            serp = download_echonest_track_serp(artist, track)
-            dump_echonest_track_serp(serp, artist, track)
-            sleep(0.5)
+def parse_echonest_track_serp(data):
+    for track in data['response']['songs']:
+        artist = track['artist_name']
+        name = track['title']
+        summary = track['audio_summary']
+        energy = summary['energy']
+        liveness = summary['liveness']
+        tempo = summary['tempo']
+        speechiness = summary['speechiness']
+        acousticness = summary['acousticness']
+        danceability = summary['danceability']
+        instrumentalness = summary['instrumentalness']
+        duration = summary['duration']
+        loudness = summary['loudness']
+        yield EchonestTrack(
+            artist, name,
+            EchonestAudio(
+                energy, liveness, tempo, speechiness,
+                acousticness, danceability,
+                instrumentalness, duration, loudness
+            )
+        )
+
+
+def get_track_echonest_query(track):
+    return EchonestQuery(track.artist.name, track.name)
+
+
+def load_echonest_serps(tracks):
+    serps = {}
+    queries = {get_track_echonest_query(_) for _ in tracks}
+    for index, query in enumerate(queries):
+        if index > 0 and index % 2000 == 0:
+            print >>sys.stderr, 'Parse serp #{index}'.format(
+                index=index
+            )
+        data = load_echonest_track_serp(query)
+        serp = list(parse_echonest_track_serp(data))
+        serps[query] = serp
+    return serps
+
+
+def dump_echonest_serps(serps, path=ECHONEST_SERPS):
+    with open(path, 'w') as file:
+        data = [
+            (
+                tuple(query),
+                [
+                    (track.artist, track.name, tuple(track.audio))
+                    for track in serp
+                ]
+            )
+            for query, serp in serps.iteritems()
+        ]
+        file.write(cjson.encode(data))
+
+
+def load_echonest_serps(path=ECHONEST_SERPS):
+    with open(path) as file:
+        data = cjson.decode(file.read())
+        return {
+            EchonestQuery(*query): [
+                EchonestTrack(
+                    artist, track,
+                    EchonestAudio(*audio)
+                )
+                for artist, track, audio in serp
+            ]
+            for query, serp in data 
+        }
