@@ -7,7 +7,7 @@ import json
 import cjson
 from time import sleep, mktime
 from datetime import datetime
-from collections import namedtuple, Counter
+from collections import namedtuple, defaultdict, Counter
 from xml.etree import ElementTree
 from hashlib import md5
 
@@ -16,6 +16,10 @@ requests.packages.urllib3.disable_warnings()
 
 import seaborn as sns
 import pandas as pd
+from matplotlib import pyplot as plt
+from matplotlib import rc
+# For cyrillic labels
+rc('font', family='Verdana', weight='normal')
 
 
 LASTFM_DIR = 'lastfm'
@@ -44,6 +48,11 @@ EchonestAudio = namedtuple(
      'instrumentalness', 'duration', 'loudness']
 )
 EchonestTrack = namedtuple('EchonestTrack', ['artist', 'name', 'audio'])
+
+Track = namedtuple(
+    'Track',
+    ['artist', 'album', 'name', 'listened', 'audio']
+)
 
 
 def call_lastfm(**parameters):
@@ -297,3 +306,26 @@ def load_echonest_serps(path=ECHONEST_SERPS):
             ]
             for query, serp in data 
         }
+
+
+def join_lastfm_echonest(tracks, serps):
+    for track in tracks:
+        serp = serps.get(get_track_echonest_query(track))
+        audio = None
+        if serp:
+            best = serp[0]
+            audio = best.audio
+        yield Track(
+            track.artist,
+            track.album,
+            track.name,
+            track.timestamp,
+            audio
+        )
+
+
+def filter_tracks_by_listened(tracks, start=datetime.strptime('2009-03-02', '%Y-%m-%d')):
+    for track in tracks:
+        listened = track.listened
+        if listened and listened >= start:
+            yield track
