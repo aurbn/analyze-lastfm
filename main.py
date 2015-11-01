@@ -530,6 +530,7 @@ def show_selected_tracks_artists(tracks, artist_tracks, artists,
         else:
             title = shorten_string(name)
         series.plot(ax=ax, figsize=(width, height), title=title)
+        ax.set_ylabel('# tracks per week')
     fig.tight_layout() 
 
 
@@ -570,7 +571,11 @@ def get_listened_first_time(tracks, window, get_name=get_track_artist_track):
     return day_first_times
 
 
-def show_day_first_times(tracks, get_name=get_track_artist_track):
+def show_day_first_times(
+    tracks,
+    get_name=get_track_artist_track,
+    ylabel='share of tracks played first time (avg. by months)'
+):
     first_time_in_week = get_listened_first_time(tracks, window=7, get_name=get_name)
     first_time_in_month = get_listened_first_time(tracks, window=30, get_name=get_name)
     first_time_in_6_months = get_listened_first_time(tracks, window=120, get_name=get_name)
@@ -585,10 +590,15 @@ def show_day_first_times(tracks, get_name=get_track_artist_track):
     table = table.div(pd.Series(total), axis=0)
     table = table.resample('M', how='mean')
     table = table.reindex(columns=['in_week', 'in_month', 'in_6_months', 'in_all_time'])
-    table.plot(cmap='Blues', ylim=(0, 1))
+    fig, ax = plt.subplots()
+    table.plot(cmap='Blues', ylim=(0, 1), ax=ax)
+    ax.set_ylabel(ylabel)
 
 
-def show_day_listen_repetitions(tracks, get_name=get_track_artist_track):
+def show_day_listen_repetitions(
+    tracks, get_name=get_track_artist_track,
+    ylabel='share of track freq. per day avg. by months'
+):
     day_names = defaultdict(list)
     for track in tracks:
         listened = track.listened
@@ -616,7 +626,9 @@ def show_day_listen_repetitions(tracks, get_name=get_track_artist_track):
     table['[10, inf)'] = totals - table.sum(axis=1)
     table = table.div(totals, axis=0)
     table = table.resample('M', how='mean')
-    table.plot(kind='area', cmap='Blues', ylim=(0, 1))
+    fig, ax = plt.subplots()
+    table.plot(kind='area', cmap='Blues', ylim=(0, 1), ax=ax)
+    ax.set_ylabel(ylabel)
 
 
 def show_year_coverage_by_time(tracks):
@@ -626,7 +638,10 @@ def show_year_coverage_by_time(tracks):
     table = table.unstack()
     table = table.resample('w', how='sum')
     table = table.div(table.sum(axis=1), axis=0)
-    table[True].plot()
+    fig, ax = plt.subplots()
+    table[True].plot(ax=ax)
+    ax.set_xlabel('')
+    ax.set_ylabel('share of tracks found in musicbrainz db')
 
 
 def show_album_year_by_time(tracks):
@@ -638,6 +653,8 @@ def show_album_year_by_time(tracks):
     table.plot(ylim=(2005, None), ax=ax)
     # Disable scientific notation for y axis
     ax.ticklabel_format(useOffset=False, axis='y')
+    ax.set_xlabel('')
+    ax.set_ylabel('mean year of tracks release')
 
 
 def show_echonest_coverage_by_time(tracks):
@@ -684,6 +701,7 @@ def show_selected_tracks_audio_by_time(tracks):
         series = series.resample('w', how='mean')
         series.plot(figsize=(12, 8), ax=ax, title=feature)
         ax.set_xlabel('')
+        ax.set_ylabel('mean feature value by week')
     fig.tight_layout()
 
 
